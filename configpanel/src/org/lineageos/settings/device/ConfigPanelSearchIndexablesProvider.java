@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2016 The CyanogenMod Project
- * Copyright (C) 2017 The LineageOS Project
+ * Copyright (C) 2016 The lineageos Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +14,7 @@
  * limitations under the License.
  */
 
-package org.lineageos.settings.device;
+package com.lineageos.settings.device;
 
 
 import android.database.Cursor;
@@ -45,6 +44,9 @@ public class ConfigPanelSearchIndexablesProvider extends SearchIndexablesProvide
             new SearchIndexableResource(1, R.xml.button_panel,
                     ButtonSettings.class.getName(),
                     R.drawable.ic_settings_additional_buttons),
+            new SearchIndexableResource(1, R.xml.gesture_panel,
+                    GesturePadSettings.class.getName(),
+                    R.drawable.ic_settings_gestures),
             new SearchIndexableResource(1, R.xml.oclick_panel,
                     BluetoothInputSettings.class.getName(),
                     R.drawable.ic_oclick_notification),
@@ -61,6 +63,9 @@ public class ConfigPanelSearchIndexablesProvider extends SearchIndexablesProvide
         if (Startup.hasButtonProcs() /* show button panel */) {
             cursor.addRow(generateResourceRef(INDEXABLE_RES[SEARCH_IDX_BUTTON_PANEL]));
         }
+        if (Startup.hasGestureService(getContext()) /* show gesture panel */) {
+            cursor.addRow(generateResourceRef(INDEXABLE_RES[SEARCH_IDX_GESTURE_PANEL]));
+        }
         if (Startup.hasOClick() /* show oclick panel */) {
             cursor.addRow(generateResourceRef(INDEXABLE_RES[SEARCH_IDX_OCLICK_PANEL]));
         }
@@ -74,7 +79,7 @@ public class ConfigPanelSearchIndexablesProvider extends SearchIndexablesProvide
         ref[COLUMN_INDEX_XML_RES_CLASS_NAME] = null;
         ref[COLUMN_INDEX_XML_RES_ICON_RESID] = sir.iconResId;
         ref[COLUMN_INDEX_XML_RES_INTENT_ACTION] = "com.android.settings.action.EXTRA_SETTINGS";
-        ref[COLUMN_INDEX_XML_RES_INTENT_TARGET_PACKAGE] = "org.lineageos.settings.device";
+        ref[COLUMN_INDEX_XML_RES_INTENT_TARGET_PACKAGE] = "com.lineageos.settings.device";
         ref[COLUMN_INDEX_XML_RES_INTENT_TARGET_CLASS] = sir.className;
         return ref;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The CyanogenMod Project
+ * Copyright (C) 2015 The lineageos Project
  *               2017 The LineageOS Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.lineageos.settings.device;
+package com.lineageos.settings.device;
 
 import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
@@ -34,14 +34,16 @@ import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.preference.PreferenceManager;
+import android.service.gesture.IGestureService;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
-import org.lineageos.internal.util.FileUtils;
-import org.lineageos.settings.device.utils.Constants;
+import com.lineageos.settings.device.utils.Constants;
+
+import com.lineageos.settings.device.utils.FileUtils;
 
 public class Startup extends BroadcastReceiver {
 
@@ -50,12 +52,38 @@ public class Startup extends BroadcastReceiver {
     @Override
     public void onReceive(final Context context, final Intent intent) {
         final String action = intent.getAction();
-        if (lineageos.content.Intent.ACTION_INITIALIZE_LINEAGE_HARDWARE.equals(action)) {
+        if (lineageos.content.Intent.ACTION_INITIALIZE_CM_HARDWARE.equals(action)) {
+            // Disable backtouch settings if needed
+            if (hasGestureService(context)) {
+                disableComponent(context, GesturePadSettings.class.getName());
+            } else {
+                IBinder b = ServiceManager.getService("gesture");
+                IGestureService sInstance = IGestureService.Stub.asInterface(b);
+
+                boolean value = Constants.isPreferenceEnabled(context,
+                        Constants.TOUCHPAD_STATE_KEY);
+                String node = Constants.sBooleanNodePreferenceMap.get(
+                        Constants.TOUCHPAD_STATE_KEY);
+                if (!FileUtils.writeLine(node, value ? "1" : "0")) {
+                    Log.w(TAG, "Write to node " + node +
+                            " failed while restoring touchpad enable state");
+                }
+
+                // Set longPress event
+                toggleLongPress(context, sInstance, Constants.isPreferenceEnabled(
+                        context, Constants.TOUCHPAD_LONGPRESS_KEY));
+
+                // Set doubleTap event
+                toggleDoubleTap(context, sInstance, Constants.isPreferenceEnabled(
+                        context, Constants.TOUCHPAD_DOUBLETAP_KEY));
+            }
+
             // Disable button settings if needed
             if (!hasButtonProcs()) {
                 disableComponent(context, ButtonSettings.class.getName());
             } else {
                 enableComponent(context, ButtonSettings.class.getName());
+                ButtonSettings.restoreSliderStates(context);
 
                 // Restore nodes to saved preference values
                 for (String pref : Constants.sButtonPrefKeys) {
@@ -97,16 +125,51 @@ public class Startup extends BroadcastReceiver {
         }
     }
 
+    public static void toggleDoubleTap(Context context, IGestureService gestureService,
+            boolean enable) {
+        PendingIntent pendingIntent = null;
+        if (enable) {
+            Intent doubleTapIntent = new Intent("lineageos.intent.action.GESTURE_CAMERA", null);
+            pendingIntent = PendingIntent.getBroadcastAsUser(
+                    context, 0, doubleTapIntent, 0, UserHandle.CURRENT);
+        }
+        try {
+            System.out.println("toggleDoubleTap : " + pendingIntent);
+            gestureService.setOnDoubleClickPendingIntent(pendingIntent);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void toggleLongPress(Context context, IGestureService gestureService,
+            boolean enable) {
+        PendingIntent pendingIntent = null;
+        if (enable) {
+            Intent longPressIntent = new Intent(Intent.ACTION_CAMERA_BUTTON, null);
+            pendingIntent = PendingIntent.getBroadcastAsUser(
+                    context, 0, longPressIntent, 0, UserHandle.CURRENT);
+        }
+        try {
+            System.out.println("toggleLongPress : " + pendingIntent);
+            gestureService.setOnLongPressPendingIntent(pendingIntent);
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
+    }
+
     private void sendInputEvent(InputEvent event) {
         InputManager inputManager = InputManager.getInstance();
         inputManager.injectInputEvent(event,
                 InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH);
     }
 
+    static boolean hasGestureService(Context context) {
+        return !context.getResources().getBoolean(
+                com.android.internal.R.bool.config_enableGestureService);
+    }
+
     static boolean hasButtonProcs() {
-        return (FileUtils.fileExists(Constants.NOTIF_SLIDER_TOP_NODE) &&
-                FileUtils.fileExists(Constants.NOTIF_SLIDER_MIDDLE_NODE) &&
-                FileUtils.fileExists(Constants.NOTIF_SLIDER_BOTTOM_NODE)) ||
+        return FileUtils.fileExists(Constants.NOTIF_SLIDER_NODE) ||
                 FileUtils.fileExists(Constants.BUTTON_SWAP_NODE);
     }
 

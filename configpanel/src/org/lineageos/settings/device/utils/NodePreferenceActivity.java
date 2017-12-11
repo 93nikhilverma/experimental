@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The CyanogenMod Project
+ * Copyright (C) 2015 The lineageos Project
  *               2017 The LineageOS Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.lineageos.settings.device.utils;
+package com.lineageos.settings.device.utils;
 
 import android.os.Bundle;
 import android.preference.Preference;
@@ -26,8 +26,8 @@ import android.preference.SwitchPreference;
 import android.text.TextUtils;
 import android.view.MenuItem;
 
-import org.lineageos.internal.util.FileUtils;
-import org.lineageos.internal.util.ScreenType;
+import com.lineageos.settings.device.utils.FileUtils;
+import com.lineageos.settings.device.utils.ScreenType;
 
 public class NodePreferenceActivity extends PreferenceActivity
         implements OnPreferenceChangeListener {

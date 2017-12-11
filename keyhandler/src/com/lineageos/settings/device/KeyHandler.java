@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2015-2016 The CyanogenMod Project
- * Copyright (C) 2017 The LineageOS Project
+ * Copyright (C) 2015-2016 The lineageos Project
+ *               2017 The MoKee Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,13 @@
  * limitations under the License.
  */
 
-package org.lineageos.settings.device;
+package com.lineageos.settings.device;
 
 import android.Manifest;
-import android.app.NotificationManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Resources;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -39,9 +40,17 @@ import android.util.SparseIntArray;
 import android.view.KeyEvent;
 
 import com.android.internal.os.DeviceKeyHandler;
-import com.android.internal.util.ArrayUtils;
 
-import lineageos.providers.LineageSettings;
+import java.util.Arrays;
+
+import com.lineageos.settings.device.utils.CMSettings;
+
+import org.lineageos.settings.device.SliderControllerBase;
+import org.lineageos.settings.device.slider.NotificationController;
+import org.lineageos.settings.device.slider.FlashlightController;
+import org.lineageos.settings.device.slider.BrightnessController;
+import org.lineageos.settings.device.slider.RotationController;
+import org.lineageos.settings.device.slider.RingerController;
 
 public class KeyHandler implements DeviceKeyHandler {
 
@@ -50,25 +59,17 @@ public class KeyHandler implements DeviceKeyHandler {
 
     // Supported scancodes
     private static final int FLIP_CAMERA_SCANCODE = 249;
-    private static final int MODE_TOTAL_SILENCE = 600;
-    private static final int MODE_ALARMS_ONLY = 601;
-    private static final int MODE_PRIORITY_ONLY = 602;
-    private static final int MODE_NONE = 603;
 
     private static final int GESTURE_WAKELOCK_DURATION = 3000;
 
-    private static final SparseIntArray sSupportedSliderModes = new SparseIntArray();
-    static {
-        sSupportedSliderModes.put(MODE_TOTAL_SILENCE, Settings.Global.ZEN_MODE_NO_INTERRUPTIONS);
-        sSupportedSliderModes.put(MODE_ALARMS_ONLY, Settings.Global.ZEN_MODE_ALARMS);
-        sSupportedSliderModes.put(MODE_PRIORITY_ONLY,
-                Settings.Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS);
-        sSupportedSliderModes.put(MODE_NONE, Settings.Global.ZEN_MODE_OFF);
-    }
+    private static final String ACTION_UPDATE_SLIDER_SETTINGS
+            = "com.lineageos.settings.device.UPDATE_SLIDER_SETTINGS";
+
+    private static final String EXTRA_SLIDER_USAGE = "usage";
+    private static final String EXTRA_SLIDER_ACTIONS = "actions";
 
     private final Context mContext;
     private final PowerManager mPowerManager;
-    private final NotificationManager mNotificationManager;
     private EventHandler mEventHandler;
     private SensorManager mSensorManager;
     private Sensor mProximitySensor;
@@ -78,11 +79,57 @@ public class KeyHandler implements DeviceKeyHandler {
     private int mProximityTimeOut;
     private boolean mProximityWakeSupported;
 
+    private final NotificationController mNotificationController;
+    private final FlashlightController mFlashlightController;
+    private final BrightnessController mBrightnessController;
+    private final RotationController mRotationController;
+    private final RingerController mRingerController;
+
+    private SliderControllerBase mSliderController;
+
+    private final BroadcastReceiver mUpdateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            int usage = intent.getIntExtra(EXTRA_SLIDER_USAGE, 0);
+            int[] actions = intent.getIntArrayExtra(EXTRA_SLIDER_ACTIONS);
+
+            Log.d(TAG, "update usage " + usage + " with actions " +
+                    Arrays.toString(actions));
+
+            if (mSliderController != null) {
+                mSliderController.reset();
+            }
+
+            switch (usage) {
+                case NotificationController.ID:
+                    mSliderController = mNotificationController;
+                    mSliderController.update(actions);
+                    break;
+                case FlashlightController.ID:
+                    mSliderController = mFlashlightController;
+                    mSliderController.update(actions);
+                    break;
+                case BrightnessController.ID:
+                    mSliderController = mBrightnessController;
+                    mSliderController.update(actions);
+                    break;
+                case RotationController.ID:
+                    mSliderController = mRotationController;
+                    mSliderController.update(actions);
+                    break;
+                case RingerController.ID:
+                    mSliderController = mRingerController;
+                    mSliderController.update(actions);
+                    break;
+            }
+
+            mSliderController.restoreState();
+        }
+    };
+
     public KeyHandler(Context context) {
         mContext = context;
         mPowerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-        mNotificationManager
-                = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         mEventHandler = new EventHandler();
         mGestureWakeLock = mPowerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                 "GestureWakeLock");
@@ -104,6 +151,15 @@ public class KeyHandler implements DeviceKeyHandler {
         if (mVibrator == null || !mVibrator.hasVibrator()) {
             mVibrator = null;
         }
+
+        mNotificationController = new NotificationController(context);
+        mFlashlightController = new FlashlightController(context);
+        mBrightnessController = new BrightnessController(context);
+        mRotationController = new RotationController(context);
+        mRingerController = new RingerController(context);
+
+        mContext.registerReceiver(mUpdateReceiver,
+                new IntentFilter(ACTION_UPDATE_SLIDER_SETTINGS));
     }
 
     private class EventHandler extends Handler {
@@ -125,7 +181,7 @@ public class KeyHandler implements DeviceKeyHandler {
                 Settings.Secure.USER_SETUP_COMPLETE, 0) != 0;
     }
 
-    public boolean handleKeyEvent(KeyEvent event) {
+    public KeyEvent handleKeyEvent(KeyEvent event) {
         int scanCode = event.getScanCode();
         boolean isKeySupported = scanCode == FLIP_CAMERA_SCANCODE;
         boolean isSliderModeSupported = sSupportedSliderModes.indexOfKey(scanCode) >= 0;
@@ -134,28 +190,26 @@ public class KeyHandler implements DeviceKeyHandler {
         }
 
         if (!hasSetupCompleted()) {
-            return false;
+            return event;
         }
 
         // We only want ACTION_UP event, except FLIP_CAMERA_SCANCODE
         if (scanCode == FLIP_CAMERA_SCANCODE) {
             if (event.getAction() != KeyEvent.ACTION_DOWN) {
-                return true;
+                return null;
             }
         } else if (event.getAction() != KeyEvent.ACTION_UP) {
-            return true;
+            return null;
         }
 
-        if (isSliderModeSupported) {
-            mNotificationManager.setZenMode(sSupportedSliderModes.get(scanCode), null, TAG);
-            doHapticFeedback();
+        if (isSliderControllerSupported) {
+            mSliderController.processEvent(scanCode);
         } else if (!mEventHandler.hasMessages(GESTURE_REQUEST)) {
             Message msg = getMessageForKeyEvent(scanCode);
             boolean defaultProximity = mContext.getResources().getBoolean(
                 org.lineageos.platform.internal.R.bool.config_proximityCheckOnWakeEnabledByDefault);
-            boolean proximityWakeCheckEnabled = LineageSettings.System.getInt(
-                    mContext.getContentResolver(), LineageSettings.System.PROXIMITY_ON_WAKE,
-                    defaultProximity ? 1 : 0) == 1;
+            boolean proximityWakeCheckEnabled = CMSettings.System.getInt(mContext.getContentResolver(),
+                    CMSettings.System.PROXIMITY_ON_WAKE, defaultProximity ? 1 : 0) == 1;
             if (mProximityWakeSupported && proximityWakeCheckEnabled && mProximitySensor != null) {
                 mEventHandler.sendMessageDelayed(msg, mProximityTimeOut);
                 processEvent(scanCode);
@@ -163,7 +217,7 @@ public class KeyHandler implements DeviceKeyHandler {
                 mEventHandler.sendMessage(msg);
             }
         }
-        return true;
+        return null;
     }
 
     private Message getMessageForKeyEvent(int scancode) {
@@ -200,8 +254,8 @@ public class KeyHandler implements DeviceKeyHandler {
         if (mVibrator == null) {
             return;
         }
-        boolean enabled = LineageSettings.System.getInt(mContext.getContentResolver(),
-                LineageSettings.System.TOUCHSCREEN_GESTURE_HAPTIC_FEEDBACK, 1) != 0;
+        boolean enabled = CMSettings.System.getInt(mContext.getContentResolver(),
+                CMSettings.System.TOUCHSCREEN_GESTURE_HAPTIC_FEEDBACK, 1) != 0;
         if (enabled) {
             mVibrator.vibrate(50);
         }
